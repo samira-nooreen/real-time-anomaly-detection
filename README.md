@@ -39,6 +39,7 @@ This system is ideal for **IoT, finance, cybersecurity, or any application where
 Follow these steps to set up the project locally:
 
 ### 1. Clone the repository
+```bash
 git clone https://github.com/samira-nooreen/real-time-anomaly-detection.git
 cd real-time-anomaly-detection
 2. Install dependencies
@@ -58,4 +59,4 @@ npm start
 Open your browser and go to:
 http://localhost:3000
 
-```bash
+
