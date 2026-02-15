@@ -1,0 +1,23 @@
+{
+  "feature_columns": [
+    "amount",
+    "log_amount",
+    "hour_sin",
+    "hour_cos",
+    "is_night",
+    "user_avg_amount",
+    "user_std_amount",
+    "user_tx_count",
+    "merchant_avg_amount",
+    "merchant_tx_count",
+    "amount_deviation"
+  ],
+  "accuracy": 1.0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0,
+  "roc_auc": 1.0,
+  "false_positive_rate": 0.0,
+  "fraud_ratio": 0.02,
+  "n_training_samples": 78400
+}
