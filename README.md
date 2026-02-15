@@ -8,7 +8,9 @@
 
 ## Overview
 
-The **Real-Time Anomaly Detection System** is designed to **detect unusual patterns in streaming data** using machine learning models. It integrates **Kafka for real-time data streaming** and a **monitoring dashboard** for visualization. This system is ideal for **IoT, finance, cybersecurity, or any application where early anomaly detection is critical**.
+The **Real-Time Anomaly Detection System** is designed to **detect unusual patterns in streaming data** using machine learning models.  
+It integrates **Kafka for real-time data streaming** and a **monitoring dashboard** for visualization.  
+This system is ideal for **IoT, finance, cybersecurity, or any application where early anomaly detection is critical**.
 
 ---
 
@@ -34,27 +36,27 @@ The **Real-Time Anomaly Detection System** is designed to **detect unusual patte
 
 ## Installation
 
-1. Clone the repository
-bash
+Follow these steps to set up the project locally:
+
+### 1. Clone the repository
+```bash
 git clone https://github.com/samira-nooreen/real-time-anomaly-detection.git
 cd real-time-anomaly-detection
-
- 2. Install dependencies
+2. Install dependencies
 pip install -r requirements.txt
-
 3. Run Kafka (for local streaming)
 # Start Zookeeper
 bin/zookeeper-server-start.sh config/zookeeper.properties
 
 # Start Kafka broker
 bin/kafka-server-start.sh config/server.properties
-
 4. Run the backend
 python app.py
-
 5. Run the frontend dashboard
 cd dashboard
 npm install
 npm start
+6. Access the application
+Open your browser and go to:
 
----
+http://localhost:3000
