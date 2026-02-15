@@ -1,40 +1,168 @@
 """
 FastAPI Monitoring Dashboard — Real-time metrics for the anomaly detection system.
-Provides REST API + HTML dashboard showing throughput, fraud rate, latency, recent alerts.
+Includes a built-in transaction simulator that feeds the ML models directly,
+so the dashboard works standalone without Kafka.
 """
 
 import json
 import time
 import os
+import random
 import threading
 
-from fastapi import FastAPI, Request
+import numpy as np
+import joblib
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 import uvicorn
 
 app = FastAPI(title="Anomaly Detection Monitor")
 
-# Stats shared with consumer (import or read from file)
-# In Docker, consumer writes stats to a shared volume file
-STATS_FILE = os.environ.get("STATS_FILE", "/tmp/anomaly_stats.json")
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "consumer")
 
-# Fallback in-memory stats for standalone mode
-_fallback_stats = {
+# In-memory stats updated by the simulator thread
+stats = {
     "total_processed": 0,
     "total_fraud": 0,
     "total_normal": 0,
     "avg_latency_ms": 0.0,
     "recent_frauds": [],
+    "latencies": [],
     "start_time": time.time(),
 }
 
+# Model artifacts (loaded once at startup)
+_gb_model = None
+_iso_model = None
+_scaler = None
+_metadata = None
+_user_cache = {}
+_merchant_cache = {}
+_sim_running = False
 
-def read_stats():
-    try:
-        with open(STATS_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return _fallback_stats
+
+def load_models():
+    global _gb_model, _iso_model, _scaler, _metadata
+    _gb_model = joblib.load(os.path.join(MODEL_DIR, "gb_model.pkl"))
+    _iso_model = joblib.load(os.path.join(MODEL_DIR, "iso_model.pkl"))
+    _scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
+    with open(os.path.join(MODEL_DIR, "model_metadata.json")) as f:
+        _metadata = json.load(f)
+    print(f"Models loaded. Accuracy={_metadata['accuracy']:.4f}, ROC-AUC={_metadata['roc_auc']:.4f}")
+
+
+def generate_transaction():
+    is_suspicious = random.random() < 0.03
+    if is_suspicious:
+        return {
+            "amount": round(random.uniform(800, 5000), 2),
+            "user_id": random.randint(1, 50),
+            "merchant_id": random.randint(1, 30),
+            "hour_of_day": random.choice([0, 1, 2, 3, 4, 23]),
+            "day_of_week": random.randint(0, 6),
+            "timestamp": time.time(),
+        }
+    else:
+        return {
+            "amount": round(random.expovariate(1 / 80), 2),
+            "user_id": random.randint(1, 1000),
+            "merchant_id": random.randint(1, 300),
+            "hour_of_day": random.randint(8, 22),
+            "day_of_week": random.randint(0, 6),
+            "timestamp": time.time(),
+        }
+
+
+def build_features(tx):
+    uid = tx["user_id"]
+    mid = tx["merchant_id"]
+    amount = tx["amount"]
+
+    if uid not in _user_cache:
+        _user_cache[uid] = {"amounts": [], "count": 0}
+    _user_cache[uid]["amounts"].append(amount)
+    _user_cache[uid]["count"] += 1
+    u = _user_cache[uid]
+    user_avg = float(np.mean(u["amounts"][-100:]))
+    user_std = float(np.std(u["amounts"][-100:])) if len(u["amounts"]) > 1 else 0.0
+
+    if mid not in _merchant_cache:
+        _merchant_cache[mid] = {"amounts": [], "count": 0}
+    _merchant_cache[mid]["amounts"].append(amount)
+    _merchant_cache[mid]["count"] += 1
+    m = _merchant_cache[mid]
+    merchant_avg = float(np.mean(m["amounts"][-100:]))
+
+    hour = tx["hour_of_day"]
+    features = [
+        amount,
+        np.log1p(amount),
+        np.sin(2 * np.pi * hour / 24),
+        np.cos(2 * np.pi * hour / 24),
+        1 if hour < 6 or hour >= 23 else 0,
+        user_avg,
+        user_std,
+        u["count"],
+        merchant_avg,
+        m["count"],
+        abs(amount - user_avg),
+    ]
+    return np.array([features])
+
+
+def score_transaction(tx):
+    features = build_features(tx)
+    features_scaled = _scaler.transform(features)
+    gb_proba = float(_gb_model.predict_proba(features_scaled)[0][1])
+    iso_pred = int(_iso_model.predict(features_scaled)[0])
+    is_fraud = (gb_proba > 0.4) or (iso_pred == -1)
+    return gb_proba, iso_pred, is_fraud
+
+
+def simulator_loop():
+    """Background thread: generates transactions, scores them, updates stats."""
+    global _sim_running
+    _sim_running = True
+    tps = 50  # transactions per second
+    sleep_interval = 1.0 / tps
+
+    print(f"Simulator started: ~{tps} tx/sec")
+
+    while _sim_running:
+        tx = generate_transaction()
+        start = time.time()
+        gb_proba, iso_pred, is_fraud = score_transaction(tx)
+        latency_ms = (time.time() - start) * 1000
+
+        stats["total_processed"] += 1
+        stats["latencies"].append(latency_ms)
+        if len(stats["latencies"]) > 1000:
+            stats["latencies"] = stats["latencies"][-1000:]
+        stats["avg_latency_ms"] = float(np.mean(stats["latencies"]))
+
+        if is_fraud:
+            stats["total_fraud"] += 1
+            fraud_record = {
+                **tx,
+                "fraud_probability": round(gb_proba, 4),
+                "iso_anomaly": int(iso_pred == -1),
+                "latency_ms": round(latency_ms, 2),
+                "detected_at": time.time(),
+            }
+            stats["recent_frauds"].append(fraud_record)
+            if len(stats["recent_frauds"]) > 50:
+                stats["recent_frauds"] = stats["recent_frauds"][-50:]
+        else:
+            stats["total_normal"] += 1
+
+        time.sleep(sleep_interval)
+
+
+@app.on_event("startup")
+async def startup():
+    load_models()
+    t = threading.Thread(target=simulator_loop, daemon=True)
+    t.start()
 
 
 DASHBOARD_HTML = """
@@ -57,16 +185,8 @@ DASHBOARD_HTML = """
             padding: 24px 32px;
             border-bottom: 1px solid #2a2a4a;
         }
-        .header h1 {
-            font-size: 24px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .header .subtitle {
-            color: #888;
-            font-size: 14px;
-            margin-top: 4px;
-        }
+        .header h1 { font-size: 24px; font-weight: 600; color: #fff; }
+        .header .subtitle { color: #888; font-size: 14px; margin-top: 4px; }
         .status-badge {
             display: inline-block;
             padding: 4px 12px;
@@ -107,21 +227,12 @@ DASHBOARD_HTML = """
             color: #666;
             margin-bottom: 8px;
         }
-        .metric-value {
-            font-size: 32px;
-            font-weight: 700;
-            color: #fff;
-        }
+        .metric-value { font-size: 32px; font-weight: 700; color: #fff; }
         .metric-value.fraud { color: #ff4444; }
         .metric-value.success { color: #00ff88; }
         .metric-value.warning { color: #ffaa00; }
         .metric-value.info { color: #4488ff; }
-        .section-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            color: #fff;
-        }
+        .section-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #fff; }
         .alerts-table {
             width: 100%;
             border-collapse: collapse;
@@ -170,12 +281,7 @@ DASHBOARD_HTML = """
         }
         .model-info .label { color: #666; }
         .model-info .value { color: #fff; font-weight: 500; }
-        .no-data {
-            text-align: center;
-            padding: 40px;
-            color: #444;
-            font-size: 14px;
-        }
+        .no-data { text-align: center; padding: 40px; color: #444; font-size: 14px; }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
@@ -279,7 +385,6 @@ DASHBOARD_HTML = """
                 const tps = uptime > 0 ? (data.total_processed / uptime).toFixed(0) : 0;
                 document.getElementById('throughput').textContent = tps + ' tx/s';
 
-                // Model info
                 if (data.model_metadata) {
                     const m = data.model_metadata;
                     document.getElementById('modelInfo').style.display = 'block';
@@ -291,7 +396,6 @@ DASHBOARD_HTML = """
                     document.getElementById('mFPR').textContent = (m.false_positive_rate * 100).toFixed(2) + '%';
                 }
 
-                // Alerts
                 const tbody = document.getElementById('alertsBody');
                 if (data.recent_frauds && data.recent_frauds.length > 0) {
                     tbody.innerHTML = data.recent_frauds.slice().reverse().map(f => `
@@ -320,7 +424,7 @@ DASHBOARD_HTML = """
         }
 
         fetchStats();
-        setInterval(fetchStats, 2000);
+        setInterval(fetchStats, 1500);
     </script>
 </body>
 </html>
@@ -334,24 +438,25 @@ async def dashboard():
 
 @app.get("/api/stats")
 async def get_stats():
-    stats = read_stats()
-    # Also load model metadata if available
-    meta_path = os.path.join(os.path.dirname(__file__), "..", "consumer", "model_metadata.json")
-    try:
-        with open(meta_path) as f:
-            stats["model_metadata"] = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-    return stats
+    result = {
+        "total_processed": stats["total_processed"],
+        "total_fraud": stats["total_fraud"],
+        "total_normal": stats["total_normal"],
+        "avg_latency_ms": stats["avg_latency_ms"],
+        "recent_frauds": stats["recent_frauds"][-20:],
+        "start_time": stats["start_time"],
+        "model_metadata": _metadata,
+    }
+    return result
 
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "timestamp": time.time()}
+    return {"status": "ok", "timestamp": time.time(), "simulator_active": _sim_running}
 
 
 def main():
-    port = int(os.environ.get("PORT", "8000"))
+    port = int(os.environ.get("PORT", "3000"))
     print(f"Starting monitoring dashboard on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
 
