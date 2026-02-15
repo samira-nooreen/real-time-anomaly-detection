@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.10-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 
-[🔗 Live Demo ⬅️  ](https://real-time-anomaly-detection.onrender.com)
+[🔗 Live Demo !  ](https://real-time-anomaly-detection.onrender.com)
 
 ---
 
