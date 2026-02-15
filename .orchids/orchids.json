@@ -2,6 +2,6 @@
   "projectId": "fa846d77-384a-40ef-9353-ebe953910ab3",
   "createdAt": 1771162869845,
   "version": "1.0",
-  "startupCommands": [],
+  "startupCommands": ["pip install -r requirements.txt && python training/train_model.py && python -m uvicorn monitoring.app:app --host 0.0.0.0 --port 3000"],
   "templateId": "any"
 }
