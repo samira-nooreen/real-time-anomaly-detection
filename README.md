@@ -34,12 +34,12 @@ The **Real-Time Anomaly Detection System** is designed to **detect unusual patte
 
 ## Installation
 
-### 1. Clone the repository
-```bash
+1. Clone the repository
+bash
 git clone https://github.com/samira-nooreen/real-time-anomaly-detection.git
 cd real-time-anomaly-detection
 
-### 2. Install dependencies
+ 2. Install dependencies
 pip install -r requirements.txt
 
 3. Run Kafka (for local streaming)
@@ -56,3 +56,5 @@ python app.py
 cd dashboard
 npm install
 npm start
+
+---
