@@ -31,28 +31,54 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "consumer")
 
 
 def generate_dataset(n=N_TRANSACTIONS, fraud_ratio=FRAUD_RATIO):
-    """Generate synthetic transaction dataset with realistic patterns."""
+    """Generate synthetic transaction dataset with realistic overlapping patterns."""
     np.random.seed(SEED)
 
     n_fraud = int(n * fraud_ratio)
     n_normal = n - n_fraud
 
-    # Normal transactions
+    # Normal transactions — some legitimate high-value and late-night transactions
     normal = pd.DataFrame({
-        "amount": np.random.exponential(scale=80, size=n_normal).clip(1, 2000),
-        "user_id": np.random.randint(1, 1000, size=n_normal),
-        "merchant_id": np.random.randint(1, 300, size=n_normal),
-        "hour_of_day": np.random.choice(range(8, 23), size=n_normal),
+        "amount": np.concatenate([
+            np.random.exponential(scale=80, size=int(n_normal * 0.85)).clip(1, 2000),
+            np.random.exponential(scale=300, size=int(n_normal * 0.10)).clip(50, 4000),  # high-value legitimate
+            np.random.exponential(scale=150, size=n_normal - int(n_normal * 0.85) - int(n_normal * 0.10)).clip(10, 3000),
+        ]),
+        "user_id": np.concatenate([
+            np.random.randint(1, 1000, size=int(n_normal * 0.90)),
+            np.random.randint(1, 100, size=n_normal - int(n_normal * 0.90)),  # overlap with fraud user range
+        ]),
+        "merchant_id": np.concatenate([
+            np.random.randint(1, 300, size=int(n_normal * 0.92)),
+            np.random.randint(1, 50, size=n_normal - int(n_normal * 0.92)),  # overlap with fraud merchant range
+        ]),
+        "hour_of_day": np.concatenate([
+            np.random.choice(range(8, 23), size=int(n_normal * 0.88)),
+            np.random.choice([0, 1, 2, 3, 4, 5, 23], size=n_normal - int(n_normal * 0.88)),  # night owls
+        ]),
         "day_of_week": np.random.randint(0, 7, size=n_normal),
         "is_fraud": 0,
     })
 
-    # Fraudulent transactions — higher amounts, odd hours, concentrated users
+    # Fraudulent transactions — some look normal, creating realistic difficulty
     fraud = pd.DataFrame({
-        "amount": np.random.exponential(scale=500, size=n_fraud).clip(100, 5000),
-        "user_id": np.random.randint(1, 50, size=n_fraud),
-        "merchant_id": np.random.randint(1, 30, size=n_fraud),
-        "hour_of_day": np.random.choice([0, 1, 2, 3, 4, 23], size=n_fraud),
+        "amount": np.concatenate([
+            np.random.exponential(scale=500, size=int(n_fraud * 0.70)).clip(100, 5000),  # clearly suspicious
+            np.random.exponential(scale=120, size=int(n_fraud * 0.20)).clip(10, 800),    # subtle fraud
+            np.random.exponential(scale=60, size=n_fraud - int(n_fraud * 0.70) - int(n_fraud * 0.20)).clip(5, 300),  # very subtle
+        ]),
+        "user_id": np.concatenate([
+            np.random.randint(1, 50, size=int(n_fraud * 0.75)),
+            np.random.randint(1, 500, size=n_fraud - int(n_fraud * 0.75)),  # some from normal user range
+        ]),
+        "merchant_id": np.concatenate([
+            np.random.randint(1, 30, size=int(n_fraud * 0.70)),
+            np.random.randint(1, 200, size=n_fraud - int(n_fraud * 0.70)),  # some from normal merchant range
+        ]),
+        "hour_of_day": np.concatenate([
+            np.random.choice([0, 1, 2, 3, 4, 23], size=int(n_fraud * 0.65)),
+            np.random.choice(range(8, 23), size=n_fraud - int(n_fraud * 0.65)),  # some during business hours
+        ]),
         "day_of_week": np.random.randint(0, 7, size=n_fraud),
         "is_fraud": 1,
     })
