@@ -5,8 +5,7 @@ __pycache__/
 dist/
 build/
 .env
-*.pkl
-*.joblib
+
 venv/
 .venv/
 .DS_Store
