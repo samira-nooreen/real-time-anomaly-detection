@@ -39,7 +39,6 @@ This system is ideal for **IoT, finance, cybersecurity, or any application where
 Follow these steps to set up the project locally:
 
 ### 1. Clone the repository
-```bash
 git clone https://github.com/samira-nooreen/real-time-anomaly-detection.git
 cd real-time-anomaly-detection
 2. Install dependencies
@@ -47,7 +46,6 @@ pip install -r requirements.txt
 3. Run Kafka (for local streaming)
 # Start Zookeeper
 bin/zookeeper-server-start.sh config/zookeeper.properties
-
 # Start Kafka broker
 bin/kafka-server-start.sh config/server.properties
 4. Run the backend
@@ -58,5 +56,6 @@ npm install
 npm start
 6. Access the application
 Open your browser and go to:
-
 http://localhost:3000
+
+```bash
